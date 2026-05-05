@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>근무 시간 관리 (Work Time Management)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <nav class="sidebar">
+            <div class="logo">
+                <h2>근태관리</h2>
+            </div>
+            
+            <div class="user-selector" style="padding: 1rem; margin-bottom: 1rem; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                <label style="display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem;">현재 사용자</label>
+                <div class="user-select-wrap" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.8rem;">
+                    <select id="user-select" style="width: 100%; padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--glass-border); color: white; border-radius: 4px;">
+                        <option value="">선택하세요</option>
+                    </select>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-success" id="btn-add-user" title="사용자 추가" style="flex: 1; padding: 0.5rem;"><span style="font-weight: 800; font-size: 1.1em; display: inline-block; transform: translateY(1px);">+</span> 추가</button>
+                        <button class="btn btn-danger" id="btn-delete-user" title="사용자 삭제" style="flex: 1; padding: 0.5rem;">🗑️ 삭제</button>
+                    </div>
+                </div>
+                <button id="btn-sidebar-import" class="btn btn-purple" style="width: 100%; font-size: 0.8rem; padding: 0.5rem;">엑셀 데이터 불러오기</button>
+            </div>
+            
+            <ul class="nav-links">
+                <li class="active" data-target="dashboard">대시보드</li>
+                <li data-target="entry">근무 입력</li>
+                <!-- <li data-target="weekly-schedule">주간 근무표</li> -->
+                <li data-target="schedule">월간 근무표</li>
+                <li data-target="overtime">연장근무 현황</li>
+            </ul>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="content">
+            <!-- Dashboard View -->
+            <section id="dashboard" class="view active">
+                <header>
+                    <h1>대시보드</h1>
+                    <div class="date-picker-wrap" style="position: relative; display: inline-block;">
+                        <input type="week" id="dash-week" style="opacity: 0; position: absolute; left: 0; top: 0; width: 100%; height: 100%; cursor: pointer; z-index: 10;" />
+                        <div id="dash-week-display" style="padding: 0.5rem; background: rgba(255,255,255,0.1); border: 1px solid var(--glass-border); border-radius: 4px; pointer-events: none; color: white; display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-width: 150px;">
+                            <span id="dash-week-text">2026년, 19주</span>
+                            <span style="font-size:0.8rem;">📅</span>
+                        </div>
+                    </div>
+                </header>
+                
+                <div class="cards">
+                    <div class="card glass">
+                        <h3>이번 주 누적 근무시간</h3>
+                        <div class="progress-wrap">
+                            <div class="progress-bar" id="weekly-progress"></div>
+                        </div>
+                        <p class="stat">근무: <span id="weekly-hours">0h 0m</span> / 40h (최대 52h)</p>
+                        <p class="stat" style="margin-top:0.5rem;">주간 연장: <span id="weekly-overtime" style="color:var(--accent-color); font-weight:bold;">0h 0m</span></p>
+                    </div>
+                    <div class="card glass">
+                        <h3>잔여 연장근로 시간 (휴무 가능)</h3>
+                        <h2 class="stat-highlight" id="total-overtime">0h 0m</h2>
+                    </div>
+                </div>
+
+                <!--
+                <div class="card glass" style="margin-top: 1.5rem;">
+                    <h3>월별 연장근무 분포 (최근 1년)</h3>
+                    <div style="display: flex; align-items: center; justify-content: center; min-height: 250px;">
+                        <div id="dashboard-chart-container" style="width: 200px; height: 200px; position: relative;">
+                        </div>
+                        <div id="chart-legend" style="margin-left: 2rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                        </div>
+                    </div>
+                </div>
+                -->
+
+                <!-- Weekly Schedule inside Dashboard -->
+                <div class="card glass" style="margin-top: 1.5rem; overflow-x: auto;">
+                    <h3>주간 근무표</h3>
+                    <table class="schedule-table">
+                        <thead>
+                            <tr>
+                                <th>일자</th>
+                                <th>요일</th>
+                                <th>근무 형태</th>
+                                <th>출근</th>
+                                <th>퇴근</th>
+                                <th>실근무</th>
+                                <th>비고</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schedule-weekly-body">
+                            <!-- Data -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Time Entry View -->
+            <section id="entry" class="view">
+                <header>
+                    <h1>근무 시간 입력</h1>
+                </header>
+                
+                <div class="entry-form glass">
+                    <div class="form-group">
+                        <label>날짜</label>
+                        <input type="date" id="entry-date">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>근무 형태</label>
+                        <select id="entry-type">
+                            <option value="normal">정상 근무</option>
+                            <option value="morning_half">오전 반차</option>
+                            <option value="afternoon_half">오후 반차</option>
+                            <option value="holiday">공휴일</option>
+                            <option value="annual_leave">연차</option>
+                            <option value="public_leave">공가</option>
+                            <option value="sick_leave">병가</option>
+                            <option value="replacement_leave">연장근로 시간 사용</option>
+                        </select>
+                    </div>
+                    
+                    <div class="time-inputs" id="time-inputs-container">
+                        <div class="form-group">
+                            <label>출근 시간</label>
+                            <input type="time" id="clock-in" value="08:30">
+                        </div>
+                        <div class="form-group">
+                            <label>퇴근 시간</label>
+                            <input type="time" id="clock-out" value="17:30">
+                        </div>
+                        <div class="form-group">
+                            <label>비근무 시간 (분)</label>
+                            <div class="non-work-control">
+                                <button type="button" class="btn-icon" id="btn-minus-30">-30</button>
+                                <input type="number" id="non-work" value="0" min="0">
+                                <button type="button" class="btn-icon" id="btn-plus-30">+30</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top: 1rem;">
+                        <label>연장근로 사용 (분)</label>
+                        <input type="number" id="overtime-used" value="0" min="0">
+                    </div>
+
+                    <div class="form-group" id="holiday-desc-group" style="display: none; margin-top: 1rem;">
+                        <label>공휴일/연차 명칭</label>
+                        <input type="text" id="holiday-desc" placeholder="예: 현충일, 근로자의 날">
+                    </div>
+                    <button class="btn primary" id="btn-save-log" style="margin-top: 1rem;">저장하기</button>
+                </div>
+
+                <!-- Removed Weekly Schedule Table -->
+            </section>
+
+            <!-- Weekly Schedule View Removed and merged into Dashboard -->
+
+            <!-- Overtime Status View -->
+            <section id="overtime" class="view">
+                <header>
+                    <h1>연장근무 사용 현황</h1>
+                </header>
+                <div class="card glass">
+                    <p>연장근로 시간 사용 내역입니다.</p>
+                    <table class="schedule-table" style="margin-top: 1rem;">
+                        <thead>
+                            <tr>
+                                <th>사용일</th>
+                                <th>사용 시간</th>
+                                <th>잔여 연장근로 시간</th>
+                            </tr>
+                        </thead>
+                        <tbody id="vault-body">
+                            <!-- Data -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Schedule View (Monthly) -->
+            <section id="schedule" class="view">
+                <header>
+                    <h1>월간 근무표</h1>
+                </header>
+                <div class="card glass" style="margin-bottom: 1.5rem;">
+                    <div style="display: flex; align-items: flex-end; gap: 1.5rem;">
+                        <div class="form-group" style="margin-bottom: 0; flex: 1;">
+                            <label>조회할 월 선택</label>
+                            <input type="month" id="schedule-month">
+                        </div>
+                        <button class="btn primary" id="btn-schedule-export" style="font-size: 0.8rem; padding: 0.5rem 1rem; height: 38px;">엑셀 다운로드</button>
+                    </div>
+                </div>
+                
+                <div class="cards" style="margin-bottom: 1.5rem; grid-template-columns: 1fr 1fr 1fr 1fr;">
+                    <div class="card glass"><p class="stat">총 발생 연장근로</p><h3 id="stat-earned">0h 0m</h3></div>
+                    <div class="card glass"><p class="stat">총 사용 연장근로</p><h3 id="stat-used">0h 0m</h3></div>
+                    <div class="card glass"><p class="stat">이월된 연장근로</p><h3 id="stat-carry">0h 0m</h3></div>
+                    <div class="card glass"><p class="stat">잔여 연장근로 시간</p><h3 id="stat-total" style="color:var(--accent-color)">0h 0m</h3></div>
+                </div>
+                
+                <div class="card glass" style="overflow-x: auto;">
+                    <table class="schedule-table">
+                        <thead>
+                            <tr>
+                                <th>일자</th>
+                                <th>근무형태</th>
+                                <th>출근</th>
+                                <th>퇴근</th>
+                                <th>비근무시간</th>
+                                <th>휴게시간</th>
+                                <th>실근무시간</th>
+                                <th style="color:var(--accent-color)">발생연장근로</th>
+                                <th style="color:var(--warning)">사용연장근로</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schedule-body">
+                            <!-- Data -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <!-- Admin Modal -->
+    <div id="admin-modal" class="modal">
+        <div class="modal-content glass">
+            <h3>관리자 승인 필요</h3>
+            <p style="margin: 1rem 0;">유효기간 연장을 위해 비밀번호를 입력해주세요.</p>
+            <input type="password" id="admin-pw" placeholder="비밀번호" style="width:100%; margin-bottom:1rem;">
+            <input type="hidden" id="modal-vault-id">
+            <div style="display:flex; gap:1rem; justify-content: flex-end;">
+                <button class="btn" id="btn-modal-cancel">취소</button>
+                <button class="btn primary" id="btn-modal-confirm">승인</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Notification Toast -->
+    <div id="toast" class="toast"></div>
+
+    <script src="app.js?v=2"></script>
+</body>
+</html>
