@@ -1,6 +1,17 @@
 import webview
-import json
 import os
+import sys
+
+class DummyFile:
+    def write(self, x): pass
+    def flush(self): pass
+
+if sys.stdout is None:
+    sys.stdout = DummyFile()
+if sys.stderr is None:
+    sys.stderr = DummyFile()
+
+import json
 from datetime import datetime, timedelta
 import logic
 from database import init_db
@@ -22,21 +33,31 @@ class Api:
         return logic.get_work_logs(user_id, start_date, end_date)
 
     def save_log(self, data):
-        user_id = data.get('user_id')
-        date_str = data.get('date')
-        log_type = data.get('type', 'normal')
-        clock_in = data.get('clock_in', '')
-        clock_out = data.get('clock_out', '')
-        description = data.get('description', '')
-        
-        non_work_time_str = data.get('non_work_time', 0)
-        non_work_time = int(non_work_time_str) if non_work_time_str else 0
-        
-        overtime_used_str = data.get('overtime_used', 0)
-        overtime_used = int(overtime_used_str) if overtime_used_str else 0
-        
-        logic.save_work_log(user_id, date_str, log_type, clock_in, clock_out, non_work_time, overtime_used, description)
-        return {"status": "success"}
+        try:
+            user_id = data.get('user_id')
+            date_str = data.get('date')
+            log_type = data.get('type')
+            clock_in = data.get('clock_in')
+            clock_out = data.get('clock_out')
+            description = data.get('description', '')
+            
+            try:
+                non_work_time = int(data.get('non_work_time', 0) or 0)
+            except ValueError:
+                non_work_time = 0
+                
+            try:
+                overtime_used = int(data.get('overtime_used', 0) or 0)
+            except ValueError:
+                overtime_used = 0
+            
+            logic.save_work_log(user_id, date_str, log_type, clock_in, clock_out, non_work_time, overtime_used, description)
+            return {"status": "success"}
+        except Exception as e:
+            print(f"Error in save_log: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"status": "error", "message": str(e)}
 
     def get_suggested_filename(self, user_id, month_str):
         from database import get_connection
@@ -147,8 +168,14 @@ if __name__ == '__main__':
     init_db()
     api = Api()
     
+    import sys
     # Resolve absolute path for HTML
-    html_path = os.path.join(os.path.dirname(__file__), 'web', 'index.html')
+    if getattr(sys, 'frozen', False):
+        base_dir = sys._MEIPASS
+    else:
+        base_dir = os.path.dirname(__file__)
+        
+    html_path = os.path.join(base_dir, 'web', 'index.html')
     
     window = webview.create_window(
         'GSI Automotive 근태 관리 - Made by 주형진', 

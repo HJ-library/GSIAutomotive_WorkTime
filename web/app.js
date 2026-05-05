@@ -14,8 +14,6 @@ document.addEventListener("DOMContentLoaded", () => {
             
             if (targetId === "dashboard") {
                 loadDashboardData();
-            } else if (targetId === "weekly-schedule") {
-                initWeeklyScheduleView();
             } else if (targetId === "schedule") {
                 initScheduleView();
             } else if (targetId === "overtime") {
@@ -133,9 +131,6 @@ document.addEventListener("DOMContentLoaded", () => {
         loadVaultData();
         if (document.getElementById("schedule").classList.contains("active")) {
             loadScheduleData();
-        }
-        if (document.getElementById("weekly-schedule").classList.contains("active")) {
-            loadWeeklyScheduleData();
         }
     }
 
@@ -506,7 +501,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 "holiday": "공휴일",
                 "annual_leave": "연차",
                 "public_leave": "공가",
-                "sick_leave": "병가"
+                "sick_leave": "병가",
+                "replacement_leave": "연장근로 시간 사용"
             };
             
             logs.forEach(log => {

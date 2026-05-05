@@ -1,11 +1,16 @@
 import sqlite3
 import os
+import sys
 from datetime import datetime
 
-DB_NAME = "worktime.db"
+if getattr(sys, 'frozen', False):
+    # If running as PyInstaller executable, put DB next to the .exe
+    DB_NAME = os.path.join(os.path.dirname(sys.executable), "worktime.db")
+else:
+    DB_NAME = "worktime.db"
 
 def get_connection():
-    return sqlite3.connect(DB_NAME)
+    return sqlite3.connect(DB_NAME, timeout=10)
 
 def init_db():
     conn = get_connection()
