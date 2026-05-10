@@ -167,15 +167,15 @@ document.addEventListener("DOMContentLoaded", () => {
             nonWork.value = 0;
         }
         
-        if (type === "holiday" || type === "annual_leave" || type === "public_leave" || type === "sick_leave" || type === "replacement_leave") {
+        if (type === "holiday" || type === "annual_leave" || type === "public_leave" || type === "sick_leave" || type === "replacement_leave" || type === "public_leave_half") {
             timeInputsContainer.style.display = "none";
         } else {
             timeInputsContainer.style.display = "grid";
         }
 
-        // Toggle holiday description field (only for holiday)
+        // Toggle holiday description field
         const holidayGroup = document.getElementById("holiday-desc-group");
-        if (type === "holiday") {
+        if (type === "holiday" || type === "public_leave_half") {
             holidayGroup.style.display = "block";
         } else {
             holidayGroup.style.display = "none";
@@ -194,6 +194,14 @@ document.addEventListener("DOMContentLoaded", () => {
     btnPlus30.addEventListener("click", () => {
         let val = parseInt(nonWork.value) || 0;
         nonWork.value = val + 30;
+    });
+    
+    // Overtime Buttons
+    document.getElementById("btn-ot-4h").addEventListener("click", () => {
+        document.getElementById("overtime-used").value = 4;
+    });
+    document.getElementById("btn-ot-8h").addEventListener("click", () => {
+        document.getElementById("overtime-used").value = 8;
     });
 
     document.getElementById("btn-save-log").addEventListener("click", async () => {
@@ -215,7 +223,7 @@ document.addEventListener("DOMContentLoaded", () => {
             clock_in: clockIn.value,
             clock_out: clockOut.value,
             non_work_time: nonWork.value,
-            overtime_used: document.getElementById("overtime-used").value || 0,
+            overtime_used: (parseInt(document.getElementById("overtime-used").value) || 0) * 60,
             description: document.getElementById("holiday-desc").value || ""
         };
 
@@ -340,11 +348,12 @@ document.addEventListener("DOMContentLoaded", () => {
                     "normal": "정상 근무", 
                     "morning_half": "오전 반차", 
                     "afternoon_half": "오후 반차", 
-                    "holiday": "공휴일",
+                    "holiday": "공휴일 / 특별휴가",
                     "annual_leave": "연차",
                     "public_leave": "공가",
+                    "public_leave_half": "반공가 + 반차",
                     "sick_leave": "병가",
-                    "replacement_leave": "연장근로 시간 사용"
+                    "replacement_leave": "휴무"
                 };
                 logs.forEach(log => {
                     const dateObj = new Date(log.date);
@@ -498,11 +507,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 "normal": "정상 근무", 
                 "morning_half": "오전 반차", 
                 "afternoon_half": "오후 반차", 
-                "holiday": "공휴일",
+                "holiday": "공휴일 / 특별휴가",
                 "annual_leave": "연차",
                 "public_leave": "공가",
+                "public_leave_half": "반공가 + 반차",
                 "sick_leave": "병가",
-                "replacement_leave": "연장근로 시간 사용"
+                "replacement_leave": "휴무"
             };
             
             logs.forEach(log => {

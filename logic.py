@@ -74,7 +74,7 @@ def save_work_log(user_id, date_str, log_type, clock_in, clock_out, non_work_tim
     conn = get_connection()
     c = conn.cursor()
     
-    if log_type in ['holiday', 'annual_leave', 'public_leave', 'sick_leave', 'replacement_leave']:
+    if log_type in ['holiday', 'annual_leave', 'public_leave', 'sick_leave', 'replacement_leave', 'public_leave_half']:
         work_minutes = 8 * 60
         break_minutes = 0
         clock_in = '08:30'
@@ -247,8 +247,8 @@ def export_monthly_excel(user_id, month_str, filepath):
         def format_type(row):
             t_names = {
                 "normal": "정상근무", "morning_half": "오전 반차", "afternoon_half": "오후 반차", 
-                "holiday": "공휴일", "annual_leave": "연차", "public_leave": "공가", "sick_leave": "병가",
-                "replacement_leave": "연장근로 시간 사용"
+                "holiday": "공휴일 / 특별휴가", "annual_leave": "연차", "public_leave": "공가", "sick_leave": "병가",
+                "replacement_leave": "휴무", "public_leave_half": "반공가 + 반차"
             }
             base_name = t_names.get(row['type'], row['type'])
             desc = row['description']
@@ -355,7 +355,7 @@ def generate_import_template(filepath):
     ws.append(headers)
     
     ws.append(['2026-04-01', '정상 근무', '08:30', '17:30', '00:00', '00:00', '08:00', None, None])
-    ws.append(['2026-04-02', '공휴일 (현충일)', '08:30', '17:30', '00:00', '00:00', '08:00', None, None])
+    ws.append(['2026-04-02', '공휴일 / 특별휴가 (현충일)', '08:30', '17:30', '00:00', '00:00', '08:00', None, None])
     
     wb.save(filepath)
     return True
@@ -396,13 +396,14 @@ def import_excel(user_id, filepath):
             desc = ""
             base_type = "normal"
             
-            if "반차" in type_str:
+            if "반공가" in type_str: base_type = "public_leave_half"
+            elif "반차" in type_str:
                 base_type = "morning_half" if "오전" in type_str else "afternoon_half"
             elif "연차" in type_str: base_type = "annual_leave"
             elif "공가" in type_str: base_type = "public_leave"
             elif "병가" in type_str: base_type = "sick_leave"
-            elif "연장" in type_str or "replacement" in type_str: base_type = "replacement_leave"
-            elif "공휴일" in type_str or "기념일" in type_str or "휴무" in type_str:
+            elif "휴무" in type_str or "연장" in type_str or "replacement" in type_str: base_type = "replacement_leave"
+            elif "공휴일" in type_str or "특별휴가" in type_str or "기념일" in type_str:
                 base_type = "holiday"
             
             if "(" in type_str and ")" in type_str:
