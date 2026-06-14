@@ -102,7 +102,6 @@ document.addEventListener("DOMContentLoaded", () => {
         addUserDesc.innerText = desc || "등록할 사용자 이름을 입력하세요.";
         addUserNameInput.value = "";
         addUserModal.style.display = "flex";
-        addUserNameInput.focus();
     }
 
     function closeAddUserModal() {
@@ -678,16 +677,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }, 3000);
     }
     
-    // Initial load when pywebview is ready
     window.addEventListener("pywebviewready", async function() {
         await loadUsers();
         
         // If no users exist, prompt to create one
         if (userSelect.options.length === 1 && !userSelect.value) {
             openAddUserModal("환영합니다!", "등록할 사용자 이름을 입력하세요:");
+        } else {
+            // Delay rendering to prevent pywebview WebView2 Accessibility crash
+            setTimeout(() => {
+                reloadAllData();
+            }, 300);
         }
-        
-        reloadAllData();
     });
 
     // Auto-fill logic
