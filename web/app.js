@@ -69,11 +69,20 @@ document.addEventListener("DOMContentLoaded", () => {
             if (users.length === 0) {
                 userSelect.innerHTML = '<option value="">사용자 없음</option>';
             } else {
+                const exportSelect = document.getElementById('export-user-select');
+                if (exportSelect) exportSelect.innerHTML = '<option value="all">전체 (사용자별 시트 생성)</option>';
                 users.forEach(u => {
                     const opt = document.createElement('option');
                     opt.value = u.id;
                     opt.innerText = u.name;
                     userSelect.appendChild(opt);
+                    
+                    if (exportSelect) {
+                        const opt2 = document.createElement('option');
+                        opt2.value = u.id;
+                        opt2.innerText = u.name;
+                        exportSelect.appendChild(opt2);
+                    }
                 });
             }
         } catch(e) {
@@ -81,8 +90,29 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
     
-    btnAddUser.addEventListener("click", async () => {
-        const name = prompt("추가할 사용자 이름을 입력하세요:");
+    const addUserModal = document.getElementById("add-user-modal");
+    const addUserNameInput = document.getElementById("add-user-name");
+    const btnAddUserCancel = document.getElementById("btn-add-user-cancel");
+    const btnAddUserConfirm = document.getElementById("btn-add-user-confirm");
+    const addUserTitle = document.getElementById("add-user-title");
+    const addUserDesc = document.getElementById("add-user-desc");
+
+    function openAddUserModal(title, desc) {
+        addUserTitle.innerText = title || "사용자 추가";
+        addUserDesc.innerText = desc || "등록할 사용자 이름을 입력하세요.";
+        addUserNameInput.value = "";
+        addUserModal.style.display = "flex";
+        addUserNameInput.focus();
+    }
+
+    function closeAddUserModal() {
+        addUserModal.style.display = "none";
+    }
+
+    btnAddUserCancel.addEventListener("click", closeAddUserModal);
+
+    btnAddUserConfirm.addEventListener("click", async () => {
+        const name = addUserNameInput.value;
         if (name && name.trim()) {
             try {
                 const res = await window.pywebview.api.add_user(name.trim());
@@ -91,11 +121,16 @@ document.addEventListener("DOMContentLoaded", () => {
                     await loadUsers();
                     userSelect.value = res.user_id;
                     reloadAllData();
+                    closeAddUserModal();
                 } else {
                     showToast("오류: " + res.message, "error");
                 }
             } catch(e) {}
         }
+    });
+
+    btnAddUser.addEventListener("click", () => {
+        openAddUserModal("사용자 추가", "추가할 사용자 이름을 입력하세요:");
     });
     
     // Delete User
@@ -167,15 +202,15 @@ document.addEventListener("DOMContentLoaded", () => {
             nonWork.value = 0;
         }
         
-        if (type === "holiday" || type === "annual_leave" || type === "public_leave" || type === "sick_leave" || type === "replacement_leave") {
+        if (type === "holiday" || type === "annual_leave" || type === "public_leave" || type === "sick_leave" || type === "replacement_leave" || type === "public_leave_half") {
             timeInputsContainer.style.display = "none";
         } else {
             timeInputsContainer.style.display = "grid";
         }
 
-        // Toggle holiday description field (only for holiday)
+        // Toggle holiday description field
         const holidayGroup = document.getElementById("holiday-desc-group");
-        if (type === "holiday") {
+        if (type === "holiday" || type === "public_leave_half") {
             holidayGroup.style.display = "block";
         } else {
             holidayGroup.style.display = "none";
@@ -194,6 +229,14 @@ document.addEventListener("DOMContentLoaded", () => {
     btnPlus30.addEventListener("click", () => {
         let val = parseInt(nonWork.value) || 0;
         nonWork.value = val + 30;
+    });
+    
+    // Overtime Buttons
+    document.getElementById("btn-ot-4h").addEventListener("click", () => {
+        document.getElementById("overtime-used").value = 4;
+    });
+    document.getElementById("btn-ot-8h").addEventListener("click", () => {
+        document.getElementById("overtime-used").value = 8;
     });
 
     document.getElementById("btn-save-log").addEventListener("click", async () => {
@@ -215,7 +258,7 @@ document.addEventListener("DOMContentLoaded", () => {
             clock_in: clockIn.value,
             clock_out: clockOut.value,
             non_work_time: nonWork.value,
-            overtime_used: document.getElementById("overtime-used").value || 0,
+            overtime_used: (parseInt(document.getElementById("overtime-used").value) || 0) * 60,
             description: document.getElementById("holiday-desc").value || ""
         };
 
@@ -340,11 +383,12 @@ document.addEventListener("DOMContentLoaded", () => {
                     "normal": "정상 근무", 
                     "morning_half": "오전 반차", 
                     "afternoon_half": "오후 반차", 
-                    "holiday": "공휴일",
+                    "holiday": "공휴일 / 특별휴가",
                     "annual_leave": "연차",
                     "public_leave": "공가",
+                    "public_leave_half": "반공가 + 반차",
                     "sick_leave": "병가",
-                    "replacement_leave": "연장근로 시간 사용"
+                    "replacement_leave": "휴무"
                 };
                 logs.forEach(log => {
                     const dateObj = new Date(log.date);
@@ -498,11 +542,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 "normal": "정상 근무", 
                 "morning_half": "오전 반차", 
                 "afternoon_half": "오후 반차", 
-                "holiday": "공휴일",
+                "holiday": "공휴일 / 특별휴가",
                 "annual_leave": "연차",
                 "public_leave": "공가",
+                "public_leave_half": "반공가 + 반차",
                 "sick_leave": "병가",
-                "replacement_leave": "연장근로 시간 사용"
+                "replacement_leave": "휴무"
             };
             
             logs.forEach(log => {
@@ -636,12 +681,73 @@ document.addEventListener("DOMContentLoaded", () => {
     // Initial load when pywebview is ready
     window.addEventListener("pywebviewready", async function() {
         await loadUsers();
-        try {
-            const userId = userSelect.value;
-            if (userId) {
-                await window.pywebview.api.auto_fill_missing(parseInt(userId));
-            }
-        } catch(e) {}
+        
+        // If no users exist, prompt to create one
+        if (userSelect.options.length === 1 && !userSelect.value) {
+            openAddUserModal("환영합니다!", "등록할 사용자 이름을 입력하세요:");
+        }
+        
         reloadAllData();
+    });
+
+    // Auto-fill logic
+    document.getElementById("btn-autofill-exec").addEventListener("click", async () => {
+        if (!window.pywebview) return;
+        const userId = userSelect.value;
+        const month = document.getElementById("autofill-month").value;
+        if (!userId || !month) {
+            showToast("사용자와 대상 월을 모두 선택해주세요.", "warning");
+            return;
+        }
+        
+        if (confirm("이전 일 중 기본 근무 시간이 비어 있는 곳에 기본 근무일을 채우시겠습니까?\n(주의: 공휴일, 특별휴가 등은 자동 채우기 후 별도로 수정해야 합니다)")) {
+            try {
+                const res = await window.pywebview.api.auto_fill_missing_days(parseInt(userId), month);
+                if (res.status === "success") {
+                    showToast(res.count + "개의 누락일자가 채워졌습니다.", "success");
+                    reloadAllData();
+                } else {
+                    showToast("오류: " + res.message, "error");
+                }
+            } catch(e) {
+                showToast("실행 중 오류 발생", "error");
+            }
+        }
+    });
+
+    // Yearly Export Logic
+    const yearlyModal = document.getElementById("yearly-export-modal");
+    document.getElementById("btn-yearly-export-modal").addEventListener("click", () => {
+        document.getElementById("export-year").value = new Date().getFullYear();
+        yearlyModal.style.display = "flex";
+    });
+    
+    document.getElementById("btn-yearly-cancel").addEventListener("click", () => {
+        yearlyModal.style.display = "none";
+    });
+    
+    document.getElementById("btn-yearly-exec").addEventListener("click", async () => {
+        if (!window.pywebview) return;
+        const year = document.getElementById("export-year").value;
+        const expUserEl = document.getElementById("export-user-select");
+        const expUserId = expUserEl.value;
+        let expUserName = expUserEl.options[expUserEl.selectedIndex].text.replace(' (사용자별 시트 생성)', '').trim();
+        
+        if (!year) {
+            showToast("연도를 입력해주세요.", "warning");
+            return;
+        }
+        
+        yearlyModal.style.display = "none";
+        try {
+            const res = await window.pywebview.api.export_yearly_excel(year, expUserId, expUserName);
+            if (res.status === "success") {
+                showToast("연간 근무표 내보내기가 완료되었습니다.", "success");
+            } else if (res.message !== "cancel") {
+                showToast("오류: " + res.message, "error");
+            }
+        } catch(e) {
+            showToast("내보내기 중 오류 발생", "error");
+        }
     });
 });
