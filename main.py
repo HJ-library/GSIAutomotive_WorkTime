@@ -105,6 +105,25 @@ class Api:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
+    def export_yearly_excel(self, year_str, user_id, user_name):
+        try:
+            filepath = self.save_file_dialog(f"{year_str}_연간근무표_{user_name}.xlsx")
+            if not filepath:
+                return {"status": "error", "message": "cancel"}
+            success = logic.export_yearly_excel(year_str, user_id, filepath)
+            if success:
+                return {"status": "success"}
+            return {"status": "error", "message": "데이터 내보내기에 실패했습니다."}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def auto_fill_missing_days(self, user_id, month_str):
+        try:
+            count = logic.auto_fill_missing_days(user_id, month_str)
+            return {"status": "success", "count": count}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
     # A helper method to allow file dialog
     def save_file_dialog(self, default_filename):
         if self.window:
@@ -159,10 +178,6 @@ class Api:
         else:
             return {"status": "error", "message": msg}
 
-    def auto_fill_missing(self, user_id):
-        if user_id:
-            logic.auto_fill_missing_days(user_id)
-        return {"status": "success"}
 
 if __name__ == '__main__':
     init_db()

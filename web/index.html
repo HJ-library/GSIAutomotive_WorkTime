@@ -162,6 +162,21 @@
                     <button class="btn primary" id="btn-save-log" style="margin-top: 1rem;">저장하기</button>
                 </div>
 
+                <div class="card glass" style="margin-top: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;">누락일자 자동 채우기</h3>
+                    <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                        선택한 월의 이전 일자 중, 근무 기록이 없는 <strong>평일</strong>을 기본 근무(08:30~17:30)로 일괄 채웁니다.<br>
+                        <span style="color: var(--warning);">주의: 공휴일, 특별휴가 등은 자동 채우기 후 개별적으로 수정해야 합니다.</span>
+                    </p>
+                    <div style="display: flex; gap: 1rem; align-items: flex-end;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label>대상 월 선택</label>
+                            <input type="month" id="autofill-month">
+                        </div>
+                        <button class="btn btn-success" id="btn-autofill-exec" style="padding: 0.6rem 1.2rem;">실행</button>
+                    </div>
+                </div>
+
                 <!-- Removed Weekly Schedule Table -->
             </section>
 
@@ -200,7 +215,8 @@
                             <label>조회할 월 선택</label>
                             <input type="month" id="schedule-month">
                         </div>
-                        <button class="btn primary" id="btn-schedule-export" style="font-size: 0.8rem; padding: 0.5rem 1rem; height: 38px;">엑셀 다운로드</button>
+                        <button class="btn primary" id="btn-schedule-export" style="font-size: 0.8rem; padding: 0.5rem 1rem; height: 38px; white-space: nowrap;">월간 엑셀 다운로드</button>
+                        <button class="btn btn-purple" id="btn-yearly-export-modal" style="font-size: 0.8rem; padding: 0.5rem 1rem; height: 38px; white-space: nowrap;">연간 근무표 다운로드</button>
                     </div>
                 </div>
                 
@@ -234,7 +250,19 @@
             </section>
         </main>
     </div>
-    
+    <!-- Add User Modal -->
+    <div id="add-user-modal" class="modal">
+        <div class="modal-content glass">
+            <h3 id="add-user-title">사용자 추가</h3>
+            <p style="margin: 1rem 0;" id="add-user-desc">등록할 사용자 이름을 입력하세요.</p>
+            <input type="text" id="add-user-name" placeholder="이름" style="width:100%; margin-bottom:1rem;">
+            <div style="display:flex; gap:1rem; justify-content: flex-end;">
+                <button class="btn" id="btn-add-user-cancel">취소</button>
+                <button class="btn primary" id="btn-add-user-confirm">확인</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Admin Modal -->
     <div id="admin-modal" class="modal">
         <div class="modal-content glass">
@@ -245,6 +273,32 @@
             <div style="display:flex; gap:1rem; justify-content: flex-end;">
                 <button class="btn" id="btn-modal-cancel">취소</button>
                 <button class="btn primary" id="btn-modal-confirm">승인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Yearly Export Modal -->
+    <div id="yearly-export-modal" class="modal">
+        <div class="modal-content glass">
+            <h3>연간 근무표 다운로드</h3>
+            <p style="margin: 1rem 0;">조회할 연도와 사용자를 선택하세요.</p>
+            
+            <div class="form-group">
+                <label>조회 연도</label>
+                <input type="number" id="export-year" min="2020" max="2100" value="2026">
+            </div>
+            
+            <div class="form-group">
+                <label>대상 사용자</label>
+                <select id="export-user-select" style="width: 100%; padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--glass-border); color: white; border-radius: 4px;">
+                    <option value="all">전체 (사용자별 시트 생성)</option>
+                    <!-- User options populated via JS -->
+                </select>
+            </div>
+
+            <div style="display:flex; gap:1rem; justify-content: flex-end; margin-top: 1.5rem;">
+                <button class="btn" id="btn-yearly-cancel">취소</button>
+                <button class="btn primary" id="btn-yearly-exec">내보내기</button>
             </div>
         </div>
     </div>

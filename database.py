@@ -5,12 +5,28 @@ from datetime import datetime
 
 if getattr(sys, 'frozen', False):
     # If running as PyInstaller executable, put DB next to the .exe
-    DB_NAME = os.path.join(os.path.dirname(sys.executable), "worktime.db")
+    base_dir = os.path.dirname(sys.executable)
 else:
-    DB_NAME = "worktime.db"
+    base_dir = os.path.dirname(__file__)
+
+DB_NAME = os.path.join(base_dir, "worktime.db")
 
 def get_connection():
-    return sqlite3.connect(DB_NAME, timeout=10)
+    try:
+        # Check if we can write to the base directory
+        test_file = os.path.join(base_dir, ".test_write")
+        with open(test_file, 'w') as f:
+            f.write('1')
+        os.remove(test_file)
+        db_path = DB_NAME
+    except (IOError, OSError):
+        # Fallback to user's AppData/home directory
+        fallback_dir = os.path.join(os.path.expanduser("~"), "WorkTimeManager")
+        if not os.path.exists(fallback_dir):
+            os.makedirs(fallback_dir)
+        db_path = os.path.join(fallback_dir, "worktime.db")
+        
+    return sqlite3.connect(db_path, timeout=10)
 
 def init_db():
     conn = get_connection()
