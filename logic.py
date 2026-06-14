@@ -56,16 +56,27 @@ def calculate_work_time(clock_in_str, clock_out_str, non_work_minutes):
     total_duration_minutes = int((t_out - t_in).total_seconds() / 60)
     target_duration = total_duration_minutes - non_work_minutes
     
-    if target_duration <= 0:
-        return 0, 0
+    if target_duration > 540:
+        base_work = 480
+        base_break = 60
+        extra_time = target_duration - 540
+        extra_break = min(30, extra_time)
+        extra_work = extra_time - extra_break
         
-    W = target_duration
-    breaks = 0
-    while W >= 240 * (breaks + 1):
-        W -= 30
-        breaks += 1
-        
-    return W, breaks * 30
+        W_extra = extra_work
+        breaks_extra = 0
+        while W_extra >= 240 * (breaks_extra + 1):
+            W_extra -= 30
+            breaks_extra += 1
+            
+        return base_work + W_extra, base_break + extra_break + (breaks_extra * 30)
+    else:
+        W = target_duration
+        breaks = 0
+        while W >= 240 * (breaks + 1):
+            W -= 30
+            breaks += 1
+        return W, breaks * 30
 
 def save_work_log(user_id, date_str, log_type, clock_in, clock_out, non_work_time, overtime_used=0, description=""):
     if not user_id:
@@ -141,6 +152,9 @@ def recalculate_monthly_overtime(user_id, month_str):
                 if work_time > 480:
                     raw_earned = work_time - 480
                     
+            # 10분 단위로 내림(버림) 처리
+            raw_earned = (raw_earned // 10) * 10
+            
             if weekly_overtime[week_key] + raw_earned > 720:
                 raw_earned = max(0, 720 - weekly_overtime[week_key])
                 
@@ -418,6 +432,7 @@ def import_excel(user_id, filepath):
             used_hours = row[use_idx] if row[use_idx] is not None else 0
             try:
                 used_mins = int(float(used_hours) * 60)
+                used_mins = (used_mins // 30) * 30
             except:
                 used_mins = 0
             

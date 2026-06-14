@@ -2,14 +2,35 @@ import webview
 import os
 import sys
 
+import traceback
+
 class DummyFile:
-    def write(self, x): pass
-    def flush(self): pass
+    def write(self, x):
+        pass
+    def flush(self):
+        pass
+    def isatty(self):
+        return False
+
+# For debugging unhandled exceptions in windowed mode
+import tempfile
+log_path = os.path.join(tempfile.gettempdir(), 'worktimemanager_error.log')
+class LogFile:
+    def write(self, x):
+        with open(log_path, 'a', encoding='utf-8') as f:
+            f.write(x)
+    def flush(self):
+        pass
+    def isatty(self):
+        return False
+    @property
+    def encoding(self):
+        return 'utf-8'
 
 if sys.stdout is None:
     sys.stdout = DummyFile()
 if sys.stderr is None:
-    sys.stderr = DummyFile()
+    sys.stderr = LogFile()
 
 import json
 from datetime import datetime, timedelta
@@ -47,7 +68,8 @@ class Api:
                 non_work_time = 0
                 
             try:
-                overtime_used = int(data.get('overtime_used', 0) or 0)
+                over_used_raw = int(float(data.get('overtime_used', 0) or 0) * 60)
+                overtime_used = (over_used_raw // 30) * 30
             except ValueError:
                 overtime_used = 0
             
@@ -197,8 +219,7 @@ if __name__ == '__main__':
         html_path, 
         js_api=api,
         width=1200,
-        height=800,
-        text_select=False
+        height=800
     )
     api.window = window
     webview.start()
