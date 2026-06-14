@@ -11,21 +11,30 @@ else:
 
 DB_NAME = os.path.join(base_dir, "worktime.db")
 
-def get_connection():
+_resolved_db_path = None
+
+def _resolve_db_path():
+    global _resolved_db_path
+    if _resolved_db_path is not None:
+        return _resolved_db_path
+        
     try:
         # Check if we can write to the base directory
         test_file = os.path.join(base_dir, ".test_write")
         with open(test_file, 'w') as f:
             f.write('1')
         os.remove(test_file)
-        db_path = DB_NAME
+        _resolved_db_path = DB_NAME
     except (IOError, OSError):
         # Fallback to user's AppData/home directory
         fallback_dir = os.path.join(os.path.expanduser("~"), "WorkTimeManager")
         if not os.path.exists(fallback_dir):
             os.makedirs(fallback_dir)
-        db_path = os.path.join(fallback_dir, "worktime.db")
-        
+        _resolved_db_path = os.path.join(fallback_dir, "worktime.db")
+    return _resolved_db_path
+
+def get_connection():
+    db_path = _resolve_db_path()
     return sqlite3.connect(db_path, timeout=10)
 
 def init_db():

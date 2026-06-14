@@ -687,7 +687,7 @@ document.addEventListener("DOMContentLoaded", () => {
             // Delay rendering to prevent pywebview WebView2 Accessibility crash
             setTimeout(() => {
                 reloadAllData();
-            }, 300);
+            }, 800);
         }
     });
 

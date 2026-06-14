@@ -1,36 +1,25 @@
 import webview
 import os
 import sys
+import io
+import ctypes
+
+# Hide console window immediately if running in console mode
+if sys.platform == "win32":
+    try:
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 0) # 0 is SW_HIDE
+    except Exception:
+        pass
 
 import traceback
 
-class DummyFile:
-    def write(self, x):
-        pass
-    def flush(self):
-        pass
-    def isatty(self):
-        return False
-
-# For debugging unhandled exceptions in windowed mode
-import tempfile
-log_path = os.path.join(tempfile.gettempdir(), 'worktimemanager_error.log')
-class LogFile:
-    def write(self, x):
-        with open(log_path, 'a', encoding='utf-8') as f:
-            f.write(x)
-    def flush(self):
-        pass
-    def isatty(self):
-        return False
-    @property
-    def encoding(self):
-        return 'utf-8'
-
+# Safe redirection of standard streams for windowed mode
 if sys.stdout is None:
-    sys.stdout = DummyFile()
+    sys.stdout = io.StringIO()
 if sys.stderr is None:
-    sys.stderr = LogFile()
+    sys.stderr = io.StringIO()
 
 import json
 from datetime import datetime, timedelta
@@ -39,7 +28,7 @@ from database import init_db
 
 class Api:
     def __init__(self):
-        self.window = None
+        self._window = None
 
     def get_users(self):
         return logic.get_users()
@@ -148,9 +137,9 @@ class Api:
 
     # A helper method to allow file dialog
     def save_file_dialog(self, default_filename):
-        if self.window:
+        if self._window:
             try:
-                result = self.window.create_file_dialog(
+                result = self._window.create_file_dialog(
                     webview.SAVE_DIALOG, 
                     directory=os.getcwd(), 
                     save_filename=default_filename,
@@ -169,9 +158,9 @@ class Api:
         return {"status": "error"}
 
     def import_excel(self, user_id):
-        if self.window:
+        if self._window:
             try:
-                result = self.window.create_file_dialog(
+                result = self._window.create_file_dialog(
                     webview.OPEN_DIALOG,
                     allow_multiple=False,
                     directory=os.getcwd(),
@@ -202,24 +191,30 @@ class Api:
 
 
 if __name__ == '__main__':
-    init_db()
-    api = Api()
-    
-    import sys
-    # Resolve absolute path for HTML
-    if getattr(sys, 'frozen', False):
-        base_dir = sys._MEIPASS
-    else:
-        base_dir = os.path.dirname(__file__)
+    try:
+        init_db()
+        api = Api()
         
-    html_path = os.path.join(base_dir, 'web', 'index.html')
-    
-    window = webview.create_window(
-        'GSI Automotive 근태 관리 - Made by 주형진', 
-        html_path, 
-        js_api=api,
-        width=1200,
-        height=800
-    )
-    api.window = window
-    webview.start()
+        import sys
+        # Resolve absolute path for HTML
+        if getattr(sys, 'frozen', False):
+            base_dir = sys._MEIPASS
+        else:
+            base_dir = os.path.dirname(__file__)
+            
+        html_path = os.path.join(base_dir, 'web', 'index.html')
+        
+        window = webview.create_window(
+            'GSI Automotive 근태 관리 - Made by 주형진', 
+            html_path, 
+            js_api=api,
+            width=1200,
+            height=800
+        )
+        api._window = window
+        webview.start()
+    except Exception as e:
+        import traceback
+        err_msg = traceback.format_exc()
+        with open('worktime_crash.txt', 'w', encoding='utf-8') as f:
+            f.write(err_msg)
