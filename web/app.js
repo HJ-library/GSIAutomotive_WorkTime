@@ -178,9 +178,28 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnPlus30 = document.getElementById("btn-plus-30");
     const timeInputsContainer = document.getElementById("time-inputs-container");
 
-    // Default to today
     const today = new Date();
     entryDate.value = today.toISOString().split('T')[0];
+
+    function updateDateDay() {
+        const d = entryDate.value;
+        if (!d) return;
+        const days = ["(일)", "(월)", "(화)", "(수)", "(목)", "(금)", "(토)"];
+        const dayIdx = new Date(d).getDay();
+        const span = document.getElementById("entry-date-day");
+        if (span) {
+            span.innerText = days[dayIdx];
+        } else {
+            const newSpan = document.createElement("span");
+            newSpan.id = "entry-date-day";
+            newSpan.style.marginLeft = "8px";
+            newSpan.style.fontWeight = "bold";
+            newSpan.innerText = days[dayIdx];
+            entryDate.parentNode.insertBefore(newSpan, entryDate.nextSibling);
+        }
+    }
+    entryDate.addEventListener("change", updateDateDay);
+    updateDateDay();
 
     function applyDefaults() {
         const type = entryType.value;
@@ -214,6 +233,16 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
             holidayGroup.style.display = "none";
             document.getElementById("holiday-desc").value = "";
+        }
+        
+        const otUsedGroup = document.getElementById("overtime-used-group");
+        if (type === "holiday" || type === "annual_leave" || type === "public_leave" || type === "sick_leave" || type === "public_leave_half") {
+            if(otUsedGroup) {
+                otUsedGroup.style.display = "none";
+                document.getElementById("overtime-used").value = "0";
+            }
+        } else {
+            if(otUsedGroup) otUsedGroup.style.display = "block";
         }
     }
 
@@ -257,7 +286,7 @@ document.addEventListener("DOMContentLoaded", () => {
             clock_in: clockIn.value,
             clock_out: clockOut.value,
             non_work_time: nonWork.value,
-            overtime_used: (parseInt(document.getElementById("overtime-used").value) || 0) * 60,
+            overtime_used: Math.round((parseFloat(document.getElementById("overtime-used").value) || 0) * 60),
             description: document.getElementById("holiday-desc").value || ""
         };
 
@@ -358,6 +387,15 @@ document.addEventListener("DOMContentLoaded", () => {
             // Total Remaining Overtime (Monthly Summary)
             const stats = await window.pywebview.api.get_monthly_summary(parseInt(userId), dateStr.substring(0,7));
             document.getElementById("total-overtime").innerText = formatHm(stats.total_remaining);
+            const expSoon = document.getElementById("expiring-soon-text");
+            if (expSoon) {
+                if (stats.expiring_soon > 0) {
+                    expSoon.style.display = "block";
+                    expSoon.innerText = "만료 예정(7일 이내): " + formatHm(stats.expiring_soon);
+                } else {
+                    expSoon.style.display = "none";
+                }
+            }
             
             // Load Chart Data (Commented out in UI, but safe to keep logic or ignore)
             // const yearlySummary = await window.pywebview.api.get_yearly_summary(parseInt(userId));
@@ -532,6 +570,9 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById("stat-used").innerText = formatHm(stats.curr_used);
             document.getElementById("stat-carry").innerText = formatHm(stats.carry_over);
             document.getElementById("stat-total").innerText = formatHm(stats.total_remaining);
+            if(document.getElementById("stat-expired")) {
+                document.getElementById("stat-expired").innerText = formatHm(stats.expired_overtime);
+            }
         
             // Fetch logs
             const logs = await window.pywebview.api.get_logs(parseInt(userId), startStr, endStr);
@@ -549,7 +590,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 "replacement_leave": "휴무"
             };
             
+            let currentRemaining = stats.carry_over;
             logs.forEach(log => {
+                currentRemaining = currentRemaining + (log.overtime_earned || 0) - (log.overtime_used || 0);
+                
                 let displayType = typeNames[log.type] || log.type;
                 if (log.type === "holiday" && log.description) {
                     displayType = `공휴일 - ${log.description}`;
@@ -565,8 +609,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 let earnedText = log.overtime_earned ? (log.overtime_earned/60).toFixed(2) : '';
                 let usedText = log.overtime_used ? (log.overtime_used/60).toFixed(2) : '';
 
+                const expAmount = (stats.expired_by_date && stats.expired_by_date[log.date]) ? stats.expired_by_date[log.date] : 0;
+                currentRemaining = currentRemaining - expAmount;
+                
                 tr.innerHTML = `
-                    <td>${log.date}</td>
+                    <td>${log.date} ${["(일)", "(월)", "(화)", "(수)", "(목)", "(금)", "(토)"][new Date(log.date).getDay()]}</td>
                     <td>${displayType}</td>
                     <td>${log.clock_in}</td>
                     <td>${log.clock_out}</td>
@@ -575,12 +622,14 @@ document.addEventListener("DOMContentLoaded", () => {
                     <td>${formatHm(log.work_time)}</td>
                     <td style="color:var(--accent-color); font-weight:bold;">${earnedText}</td>
                     <td style="color:var(--warning); font-weight:bold;">${usedText}</td>
+                    <td style="color:var(--danger-color); font-weight:bold;">${expAmount > 0 ? (expAmount/60).toFixed(2) : ''}</td>
+                    <td style="color:#06b6d4; font-weight:bold;">${(currentRemaining/60).toFixed(2)}</td>
                 `;
                 scheduleBody.appendChild(tr);
             });
             
             if (logs.length === 0) {
-                scheduleBody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 2rem;">기록이 없습니다.</td></tr>';
+                scheduleBody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding: 2rem;">기록이 없습니다.</td></tr>';
             }
         } catch(e) {
             console.error(e);
@@ -613,33 +662,63 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Vault (Renamed to Overtime Status in HTML)
     const vaultBody = document.getElementById("vault-body");
+    const historyYear = document.getElementById("history-year");
+
     async function loadVaultData() {
         if (!window.pywebview) return;
         const userId = userSelect.value;
         if (!userId) return;
+        const year = historyYear ? historyYear.value : "2026";
+        
         try {
-            const vaults = await window.pywebview.api.get_vault_details(parseInt(userId));
+            const ledger = await window.pywebview.api.get_yearly_ledger(parseInt(userId), year);
             vaultBody.innerHTML = '';
-            vaults.forEach(v => {
+            ledger.forEach(v => {
                 const tr = document.createElement('tr');
+                let expireStr = v.earn_expires_at || '-';
+                let btnHtml = '';
+                
+                if (v.expired_minutes > 0) {
+                    if (v.exp_is_extended) {
+                        btnHtml = `<span style="color:var(--text-secondary); font-size:0.8rem;">연장됨</span>`;
+                    } else {
+                        btnHtml = `<button class="btn-icon" onclick="openAdminModal('${v.exp_vault_id}', '${v.date}')">연장</button>`;
+                    }
+                }
                 
                 tr.innerHTML = `
                     <td>${v.date}</td>
+                    <td style="color:var(--accent-color); font-weight:bold;">${v.earned_minutes > 0 ? formatHm(v.earned_minutes) : '-'}</td>
                     <td style="color:var(--warning); font-weight:bold;">${v.used_minutes > 0 ? formatHm(v.used_minutes) : '-'}</td>
-                    <td style="color:var(--accent-color); font-weight:bold;">${formatHm(v.remain_minutes)}</td>
+                    <td style="color:var(--danger-color); font-weight:bold;">${v.expired_minutes > 0 ? formatHm(v.expired_minutes) : '-'}</td>
+                    <td style="color:var(--text-color); font-weight:bold;">${formatHm(v.running_balance)}</td>
+                    <td>${expireStr}</td>
+                    <td>${btnHtml}</td>
                 `;
                 vaultBody.appendChild(tr);
             });
-            if (vaults.length === 0) {
-                vaultBody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 2rem;">내역이 없습니다.</td></tr>';
+            if (ledger.length === 0) {
+                vaultBody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 2rem;">해당 연도에 내역이 없습니다.</td></tr>';
             }
         } catch(e) { console.error(e); }
     }
 
+    if (historyYear) {
+        historyYear.addEventListener("change", loadVaultData);
+    }
+
     // Modal
-    window.openAdminModal = function(vaultId) {
+    window.openAdminModal = function(vaultId, currentExpire) {
         document.getElementById("modal-vault-id").value = vaultId;
+        const userSelect = document.getElementById("user-select");
+        document.getElementById("modal-user-id").value = userSelect ? userSelect.value : "";
         document.getElementById("admin-pw").value = '';
+        
+        let d = new Date(currentExpire);
+        if (isNaN(d)) d = new Date();
+        d.setMonth(d.getMonth() + 2); // default 3 months from original (current is 1 month, add 2 months)
+        document.getElementById("admin-new-expire").value = d.toISOString().split('T')[0];
+        
         document.getElementById("admin-modal").classList.add("show");
     };
 
@@ -649,15 +728,54 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.getElementById("btn-modal-confirm").addEventListener("click", async () => {
         const vaultId = document.getElementById("modal-vault-id").value;
+        const userId = document.getElementById("modal-user-id").value;
         const pw = document.getElementById("admin-pw").value;
+        const newExpire = document.getElementById("admin-new-expire").value;
+        
         if (!pw) return showToast("비밀번호를 입력하세요", "warning");
+        if (!newExpire) return showToast("새로운 만료일을 입력하세요", "warning");
         
         try {
-            const res = await window.pywebview.api.extend_overtime(vaultId, pw);
+            const res = await window.pywebview.api.extend_overtime(parseInt(userId), parseInt(vaultId), pw, newExpire);
             if (res.status === "success") {
                 showToast("유효기간이 연장되었습니다.", "success");
                 document.getElementById("admin-modal").classList.remove("show");
                 loadVaultData();
+                loadDashboardData();
+            } else {
+                showToast(res.message, "error");
+            }
+        } catch(e) {
+            showToast("오류 발생", "error");
+        }
+    });
+
+    // Settings Modal
+    document.getElementById("btn-settings").addEventListener("click", () => {
+        document.getElementById("settings-old-pw").value = "";
+        document.getElementById("settings-new-pw").value = "";
+        document.getElementById("settings-new-pw2").value = "";
+        document.getElementById("settings-modal").classList.add("show");
+    });
+
+    document.getElementById("btn-settings-cancel").addEventListener("click", () => {
+        document.getElementById("settings-modal").classList.remove("show");
+    });
+
+    document.getElementById("btn-settings-confirm").addEventListener("click", async () => {
+        const oldPw = document.getElementById("settings-old-pw").value;
+        const newPw = document.getElementById("settings-new-pw").value;
+        const newPw2 = document.getElementById("settings-new-pw2").value;
+        
+        if (!oldPw) return showToast("기존 비밀번호를 입력하세요", "warning");
+        if (!newPw) return showToast("새 비밀번호를 입력하세요", "warning");
+        if (newPw !== newPw2) return showToast("새 비밀번호가 일치하지 않습니다.", "error");
+        
+        try {
+            const res = await window.pywebview.api.change_admin_password(oldPw, newPw);
+            if (res.status === "success") {
+                showToast("비밀번호가 성공적으로 변경되었습니다.", "success");
+                document.getElementById("settings-modal").classList.remove("show");
             } else {
                 showToast(res.message, "error");
             }

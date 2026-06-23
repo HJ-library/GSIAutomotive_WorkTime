@@ -57,7 +57,7 @@ class Api:
                 non_work_time = 0
                 
             try:
-                over_used_raw = int(float(data.get('overtime_used', 0) or 0) * 60)
+                over_used_raw = int(float(data.get('overtime_used', 0) or 0))
                 overtime_used = (over_used_raw // 30) * 30
             except ValueError:
                 overtime_used = 0
@@ -177,17 +177,29 @@ class Api:
                 print(f"Import error: {e}")
         return {"status": "error", "message": "창 초기화 오류 또는 취소됨"}
 
-    def get_vault_details(self, user_id):
+    def get_yearly_ledger(self, user_id, year_str):
         if not user_id:
             return []
-        return logic.get_vault_details(user_id)
+        return logic.get_yearly_ledger(user_id, year_str)
 
-    def extend_overtime(self, user_id, vault_id, admin_pw):
-        success, msg = logic.extend_overtime(user_id, vault_id, admin_pw)
+    def extend_overtime(self, user_id, vault_id, admin_pw, new_expires_at):
+        success, msg = logic.extend_overtime(user_id, vault_id, admin_pw, new_expires_at)
         if success:
             return {"status": "success"}
         else:
             return {"status": "error", "message": msg}
+
+    def change_admin_password(self, old_pw, new_pw):
+        success, msg = logic.change_admin_password(old_pw, new_pw)
+        if success:
+            return {"status": "success"}
+        else:
+            return {"status": "error", "message": msg}
+
+    def get_overtime_usage_history(self, user_id, year_str):
+        if not user_id:
+            return []
+        return logic.get_overtime_usage_history(user_id, year_str)
 
 
 if __name__ == '__main__':

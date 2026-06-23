@@ -39,6 +39,36 @@ def delete_user(user_id):
     conn.close()
     return {"status": "success", "message": "User deleted"}
 
+def change_admin_password(old_pw, new_pw):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('SELECT password FROM admin_settings WHERE id = 1')
+    row = c.fetchone()
+    if not row or row[0] != old_pw:
+        conn.close()
+        return False, "기존 비밀번호가 일치하지 않습니다."
+        
+    c.execute('UPDATE admin_settings SET password = ? WHERE id = 1', (new_pw,))
+    conn.commit()
+    conn.close()
+    return True, "비밀번호가 성공적으로 변경되었습니다."
+
+def get_overtime_usage_history(user_id, year_str):
+    if not user_id:
+        return []
+    conn = get_connection()
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('''
+        SELECT date, type, overtime_used, description 
+        FROM work_logs 
+        WHERE user_id = ? AND date LIKE ? AND overtime_used > 0
+        ORDER BY date DESC
+    ''', (user_id, year_str + '%'))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
 def calculate_work_time(clock_in_str, clock_out_str, non_work_minutes):
     if not clock_in_str or not clock_out_str:
         return 0, 0
@@ -59,17 +89,30 @@ def calculate_work_time(clock_in_str, clock_out_str, non_work_minutes):
     if target_duration > 540:
         base_work = 480
         base_break = 60
-        extra_time = target_duration - 540
-        extra_break = min(30, extra_time)
-        extra_work = extra_time - extra_break
+        extra_presence = target_duration - 540
+        extra_break = 0
+        extra_work = 0
         
-        W_extra = extra_work
-        breaks_extra = 0
-        while W_extra >= 240 * (breaks_extra + 1):
-            W_extra -= 30
-            breaks_extra += 1
+        if extra_presence > 0:
+            b = min(30, extra_presence)
+            extra_break += b
+            extra_presence -= b
             
-        return base_work + W_extra, base_break + extra_break + (breaks_extra * 30)
+        if extra_presence > 0:
+            w = min(480, extra_presence)
+            extra_work += w
+            extra_presence -= w
+            
+        while extra_presence > 0:
+            b = min(30, extra_presence)
+            extra_break += b
+            extra_presence -= b
+            if extra_presence > 0:
+                w = min(240, extra_presence)
+                extra_work += w
+                extra_presence -= w
+                
+        return base_work + extra_work, base_break + extra_break
     else:
         W = target_duration
         breaks = 0
@@ -192,34 +235,92 @@ def get_work_logs(user_id, start_date_str, end_date_str):
     conn.close()
     return [dict(row) for row in rows]
 
+def add_months(sourcedate, months):
+    month = sourcedate.month - 1 + months
+    year = sourcedate.year + month // 12
+    month = month % 12 + 1
+    day = min(sourcedate.day, calendar.monthrange(year, month)[1])
+    return datetime(year, month, day).date()
+
 def get_monthly_summary(user_id, month_str):
     if not user_id:
-        return {"carry_over": 0, "curr_earned": 0, "curr_used": 0, "expiring_soon": 0, "total_remaining": 0}
+        return {"carry_over": 0, "curr_earned": 0, "curr_used": 0, "expired_overtime": 0, "expired_by_date": {}, "expiring_soon": 0, "total_remaining": 0}
         
+    import calendar
+    from datetime import datetime
+    year, month = map(int, month_str.split('-'))
+    last_day = calendar.monthrange(year, month)[1]
+    
+    start_date = f"{month_str}-01"
+    end_date = f"{month_str}-{last_day:02d}"
+    
     conn = get_connection()
     c = conn.cursor()
     
-    c.execute('SELECT SUM(overtime_earned), SUM(overtime_used) FROM work_logs WHERE user_id = ? AND date < ?', (user_id, month_str + '-01'))
-    row = c.fetchone()
-    prev_earned = row[0] or 0
-    prev_used = row[1] or 0
-    carry_over = max(0, prev_earned - prev_used)
+    c.execute('SELECT date, overtime_earned, overtime_used FROM work_logs WHERE user_id = ? AND date <= ? ORDER BY date', (user_id, end_date))
+    logs = c.fetchall()
+    
+    c.execute('SELECT date, is_extended, expires_at FROM overtime_vault WHERE user_id = ?', (user_id,))
+    existing_vault = {row[0]: (row[1], row[2]) for row in c.fetchall()}
+    
+    vault = []
+    carry_over = -1
+    
+    for row in logs:
+        dt_str = row[0]
+        earned = row[1]
+        used = row[2]
+        
+        if dt_str >= start_date and carry_over == -1:
+            carry_over = sum(v['earned'] - v['used'] for v in vault if v['expires_at'] >= start_date)
+            
+        if earned > 0:
+            if dt_str in existing_vault:
+                is_extended, expires_at = existing_vault[dt_str]
+            else:
+                dt = datetime.strptime(dt_str, "%Y-%m-%d").date()
+                expires_at = add_months(dt, 1).strftime("%Y-%m-%d")
+            vault.append({'date': dt_str, 'earned': earned, 'used': 0, 'expires_at': expires_at})
+            
+        if used > 0:
+            rem = used
+            valid_vaults = [v for v in vault if v['earned'] > v['used'] and v['expires_at'] >= dt_str]
+            for v in valid_vaults:
+                if rem <= 0: break
+                avail = v['earned'] - v['used']
+                ded = min(avail, rem)
+                v['used'] += ded
+                rem -= ded
+
+    if carry_over == -1:
+        carry_over = sum(v['earned'] - v['used'] for v in vault if v['expires_at'] >= start_date)
+        
+    total_remaining = sum(v['earned'] - v['used'] for v in vault if v['expires_at'] > end_date)
     
     c.execute('SELECT SUM(overtime_earned), SUM(overtime_used) FROM work_logs WHERE user_id = ? AND date LIKE ?', (user_id, month_str + '%'))
-    row2 = c.fetchone()
-    curr_earned = row2[0] or 0
-    curr_used = row2[1] or 0
+    r2 = c.fetchone()
+    curr_earned = r2[0] or 0
+    curr_used = r2[1] or 0
     
-    total_remaining = carry_over + curr_earned - curr_used
-    expiring_soon = carry_over
-    
+    expired_by_date = {}
+    for v in vault:
+        rem = v['earned'] - v['used']
+        if rem > 0 and start_date <= v['expires_at'] <= end_date:
+            expired_by_date[v['expires_at']] = expired_by_date.get(v['expires_at'], 0) + rem
+
+    expired_overtime = carry_over + curr_earned - curr_used - total_remaining
+    if expired_overtime < 0:
+        expired_overtime = 0
+
     conn.close()
     
     return {
         "carry_over": carry_over,
         "curr_earned": curr_earned,
         "curr_used": curr_used,
-        "expiring_soon": expiring_soon,
+        "expired_overtime": expired_overtime,
+        "expired_by_date": expired_by_date,
+        "expiring_soon": 0,
         "total_remaining": total_remaining
     }
 
@@ -275,29 +376,40 @@ def export_monthly_excel(user_id, month_str, filepath):
         wb = Workbook()
         ws = wb.active
         
-        headers = ['일자', '근무형태', '출근', '퇴근', '비근무시간', '휴게시간', '실근무시간', '발생연장근로', '사용연장근로']
+        stats = get_monthly_summary(user_id, month_str)
+        current_carry_over = stats['carry_over']
+        expired_by_date = stats.get('expired_by_date', {})
+        
+        headers = ['일자', '근무형태', '출근', '퇴근', '비근무시간', '휴게시간', '실근무시간', '발생연장근로', '사용연장근로', '소멸연장근로', '잔여연장근로']
         ws.append(headers)
         
         for r in rows:
+            earned = r['overtime_earned'] or 0
+            used = r['overtime_used'] or 0
+            dt_str = r['date']
+            expired = expired_by_date.get(dt_str, 0)
+            current_carry_over = current_carry_over + earned - used - expired
+            
             ws.append([
-                r['date'],
+                dt_str,
                 format_type(r),
                 r['clock_in'],
                 r['clock_out'],
                 mins_to_hm(r['non_work_time']),
                 mins_to_hm(r['break_time']),
                 mins_to_hm(r['work_time']),
-                mins_to_hours(r['overtime_earned']),
-                mins_to_hours(r['overtime_used'])
+                mins_to_hours(earned),
+                mins_to_hours(used),
+                mins_to_hours(expired),
+                mins_to_hours(current_carry_over)
             ])
             
-        # Post-process with openpyxl to add styles and summary block
         try:
             yellow_fill = PatternFill(start_color="FEF08A", end_color="FEF08A", fill_type="solid")
             bold_font = Font(bold=True)
+            red_font = Font(color="EF4444", bold=True)
             center_align = Alignment(horizontal="center", vertical="center")
             
-            # Format header
             for col_idx in range(1, len(headers) + 1):
                 cell = ws.cell(row=1, column=col_idx)
                 cell.font = bold_font
@@ -309,19 +421,20 @@ def export_monthly_excel(user_id, month_str, filepath):
                     for c_idx in range(1, len(headers) + 1):
                         ws.cell(row=r_idx, column=c_idx).fill = yellow_fill
                         
-            stats = get_monthly_summary(user_id, month_str)
+            ws.cell(row=2, column=13, value="이월된 연장근로").font = bold_font
+            ws.cell(row=2, column=14, value=round(stats['carry_over'] / 60, 2))
             
-            ws.cell(row=2, column=11, value="총 발생 연장근로").font = bold_font
-            ws.cell(row=2, column=12, value=round(stats['curr_earned'] / 60, 2))
+            ws.cell(row=3, column=13, value="총 발생 연장근로").font = bold_font
+            ws.cell(row=3, column=14, value=round(stats['curr_earned'] / 60, 2))
             
-            ws.cell(row=3, column=11, value="총 사용 연장근로").font = bold_font
-            ws.cell(row=3, column=12, value=round(stats['curr_used'] / 60, 2))
+            ws.cell(row=4, column=13, value="총 사용 연장근로").font = bold_font
+            ws.cell(row=4, column=14, value=round(stats['curr_used'] / 60, 2))
             
-            ws.cell(row=4, column=11, value="이월된 연장근로").font = bold_font
-            ws.cell(row=4, column=12, value=round(stats['carry_over'] / 60, 2))
+            ws.cell(row=5, column=13, value="소멸된 연장근로").font = bold_font
+            ws.cell(row=5, column=14, value=round(stats.get('expired_overtime', 0) / 60, 2)).font = red_font
             
-            ws.cell(row=5, column=11, value="잔여 연장근로 시간").font = bold_font
-            ws.cell(row=5, column=12, value=round(stats['total_remaining'] / 60, 2)).font = bold_font
+            ws.cell(row=6, column=13, value="잔여 연장근로 시간").font = bold_font
+            ws.cell(row=6, column=14, value=round(stats['total_remaining'] / 60, 2)).font = bold_font
             
             for col in ws.columns:
                 max_length = 0
@@ -455,47 +568,134 @@ def import_excel(user_id, filepath):
     except Exception as e:
         return False, str(e)
 
-def get_vault_details(user_id):
+def sync_vault(user_id):
+    if not user_id: return
+    conn = get_connection()
+    c = conn.cursor()
+    
+    # Reset used_minutes
+    c.execute('UPDATE overtime_vault SET used_minutes = 0 WHERE user_id = ?', (user_id,))
+    
+    c.execute('SELECT date, overtime_earned, overtime_used FROM work_logs WHERE user_id = ? ORDER BY date', (user_id,))
+    logs = c.fetchall()
+    
+    for row in logs:
+        dt_str = row[0]
+        earned = row[1]
+        used = row[2]
+        
+        if earned > 0:
+            c.execute('SELECT id FROM overtime_vault WHERE user_id = ? AND date = ?', (user_id, dt_str))
+            if not c.fetchone():
+                dt = datetime.strptime(dt_str, "%Y-%m-%d").date()
+                exp_at = add_months(dt, 1).strftime("%Y-%m-%d")
+                c.execute('INSERT INTO overtime_vault (user_id, date, earned_minutes, used_minutes, expires_at, is_extended) VALUES (?, ?, ?, 0, ?, 0)', (user_id, dt_str, earned, exp_at))
+            else:
+                c.execute('UPDATE overtime_vault SET earned_minutes = ? WHERE user_id = ? AND date = ?', (earned, user_id, dt_str))
+                
+        if used > 0:
+            rem = used
+            c.execute('SELECT id, earned_minutes, used_minutes FROM overtime_vault WHERE user_id = ? AND earned_minutes > used_minutes AND expires_at >= ? ORDER BY date', (user_id, dt_str))
+            valid_vaults = c.fetchall()
+            for v in valid_vaults:
+                if rem <= 0: break
+                avail = v[1] - v[2]
+                ded = min(avail, rem)
+                c.execute('UPDATE overtime_vault SET used_minutes = used_minutes + ? WHERE id = ?', (ded, v[0]))
+                rem -= ded
+
+    conn.commit()
+    conn.close()
+
+def get_yearly_ledger(user_id, year_str):
     if not user_id:
         return []
+    sync_vault(user_id)
         
     conn = get_connection()
     c = conn.cursor()
-    c.execute('''
-        SELECT date, overtime_used
-        FROM work_logs 
-        WHERE user_id = ? AND overtime_used > 0
-        ORDER BY date DESC
-    ''', (user_id,))
+    
+    # Get all logs for user up to end of year
+    c.execute('SELECT date, overtime_earned, overtime_used FROM work_logs WHERE user_id = ? ORDER BY date', (user_id,))
     logs = c.fetchall()
     
-    result = []
-    for row in logs:
-        date_str = row[0]
-        used = row[1] or 0
-        
-        # Calculate running remaining balance up to this date
-        c.execute('SELECT SUM(overtime_earned), SUM(overtime_used) FROM work_logs WHERE user_id = ? AND date <= ?', (user_id, date_str))
-        run_row = c.fetchone()
-        run_earned = run_row[0] or 0
-        run_used = run_row[1] or 0
-        remain = run_earned - run_used
-                
-        result.append({
-            "id": date_str,
-            "date": date_str,
-            "earned_minutes": 0,
-            "used_minutes": used,
-            "remain_minutes": remain,
-            "expires_at": "",
-            "is_extended": 0
-        })
-        
+    # Get all vaults for user
+    c.execute('SELECT id, date, earned_minutes, used_minutes, expires_at, is_extended FROM overtime_vault WHERE user_id = ?', (user_id,))
+    vaults = c.fetchall()
+    
     conn.close()
-    return result
+    
+    expirations_by_date = {}
+    expiring_vault_by_date = {}
+    vault_by_date = {}
+    for v in vaults:
+        v_id, v_date, earned, used, expires_at, is_ext = v
+        rem = earned - used
+        if rem > 0:
+            expirations_by_date[expires_at] = expirations_by_date.get(expires_at, 0) + rem
+            if expires_at not in expiring_vault_by_date:
+                expiring_vault_by_date[expires_at] = v
+        vault_by_date[v_date] = v
+        
+    dates_set = set([row[0] for row in logs])
+    dates_set.update(expirations_by_date.keys())
+    
+    all_dates = sorted(list(dates_set))
+    
+    ledger = []
+    running_balance = 0
+    
+    for dt_str in all_dates:
+        log = next((r for r in logs if r[0] == dt_str), None)
+        earned = log[1] if log else 0
+        used = log[2] if log else 0
+        expired = expirations_by_date.get(dt_str, 0)
+        
+        running_balance = running_balance + earned - used - expired
+        
+        if dt_str.startswith(year_str) and (earned > 0 or used > 0 or expired > 0):
+            v = vault_by_date.get(dt_str)
+            if v and v[2] > 0:
+                earn_expires_at = v[4]
+            else:
+                earn_expires_at = ""
+                
+            exp_v = expiring_vault_by_date.get(dt_str)
+            if exp_v:
+                exp_vault_id = exp_v[0]
+                exp_is_extended = exp_v[5]
+            else:
+                exp_vault_id = None
+                exp_is_extended = 0
+                
+            ledger.append({
+                'date': dt_str,
+                'earned_minutes': earned,
+                'used_minutes': used,
+                'expired_minutes': expired,
+                'running_balance': running_balance,
+                'earn_expires_at': earn_expires_at,
+                'exp_vault_id': exp_vault_id,
+                'exp_is_extended': exp_is_extended
+            })
+            
+    ledger.sort(key=lambda x: x['date'], reverse=True)
+    return ledger
 
-def extend_overtime(user_id, vault_id, admin_pw):
-    return False, "Not implemented yet"
+def extend_overtime(user_id, vault_id, admin_pw, new_expires_at):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('SELECT password FROM admin_settings WHERE id = 1')
+    row = c.fetchone()
+    if not row or row[0] != admin_pw:
+        conn.close()
+        return False, "비밀번호가 일치하지 않습니다."
+        
+    c.execute('UPDATE overtime_vault SET expires_at = ?, is_extended = 1 WHERE id = ? AND user_id = ?', (new_expires_at, vault_id, user_id))
+    conn.commit()
+    conn.close()
+    sync_vault(user_id)
+    return True, "연장되었습니다."
 
 def auto_fill_missing_days(user_id):
     pass
@@ -587,14 +787,31 @@ def export_yearly_excel(year_str, target_user_id, filepath):
             if desc and row['type'] != 'holiday': return f"{base_name} ({desc})"
             return base_name
 
-        headers = ['일자', '근무형태', '출근', '퇴근', '비근무시간', '휴게시간', '실근무시간', '발생연장근로', '사용연장근로']
+        expired_by_date_all = {}
+        total_expired = 0
+        for m in range(1, 13):
+            stats = get_monthly_summary(u_id, f"{year_str}-{m:02d}")
+            for k, v in stats.get('expired_by_date', {}).items():
+                expired_by_date_all[k] = v
+                total_expired += v
+                
+        stats_jan = get_monthly_summary(u_id, f"{year_str}-01")
+        current_carry_over = stats_jan['carry_over']
+        
+        headers = ['일자', '근무형태', '출근', '퇴근', '비근무시간', '휴게시간', '실근무시간', '발생연장근로', '사용연장근로', '소멸연장근로', '잔여연장근로']
         ws.append(headers)
         
         for r in rows:
+            dt_str = r['date']
+            earned = r['overtime_earned'] or 0
+            used = r['overtime_used'] or 0
+            expired = expired_by_date_all.get(dt_str, 0)
+            current_carry_over = current_carry_over + earned - used - expired
+            
             ws.append([
-                r['date'], format_type(r), r['clock_in'], r['clock_out'],
+                dt_str, format_type(r), r['clock_in'], r['clock_out'],
                 mins_to_hm(r['non_work_time']), mins_to_hm(r['break_time']), mins_to_hm(r['work_time']),
-                mins_to_hours(r['overtime_earned']), mins_to_hours(r['overtime_used'])
+                mins_to_hours(earned), mins_to_hours(used), mins_to_hours(expired), mins_to_hours(current_carry_over)
             ])
             
         try:
@@ -619,11 +836,22 @@ def export_yearly_excel(year_str, target_user_id, filepath):
             y_earned = yearly_stats['e'] if yearly_stats['e'] else 0
             y_used = yearly_stats['u'] if yearly_stats['u'] else 0
             
-            ws.cell(row=2, column=11, value="년도 총 발생 연장근로").font = bold_font
-            ws.cell(row=2, column=12, value=round(y_earned / 60, 2))
+            ws.cell(row=2, column=13, value="이월된 연장근로").font = bold_font
+            ws.cell(row=2, column=14, value=round(stats_jan['carry_over'] / 60, 2))
             
-            ws.cell(row=3, column=11, value="년도 총 사용 연장근로").font = bold_font
-            ws.cell(row=3, column=12, value=round(y_used / 60, 2))
+            ws.cell(row=3, column=13, value="년도 총 발생 연장근로").font = bold_font
+            ws.cell(row=3, column=14, value=round(y_earned / 60, 2))
+            
+            ws.cell(row=4, column=13, value="년도 총 사용 연장근로").font = bold_font
+            ws.cell(row=4, column=14, value=round(y_used / 60, 2))
+            
+            red_font = Font(color="EF4444", bold=True)
+            ws.cell(row=5, column=13, value="년도 총 소멸 연장근로").font = bold_font
+            ws.cell(row=5, column=14, value=round(total_expired / 60, 2)).font = red_font
+            
+            stats_dec = get_monthly_summary(u_id, f"{year_str}-12")
+            ws.cell(row=6, column=13, value="잔여 연장근로 시간").font = bold_font
+            ws.cell(row=6, column=14, value=round(stats_dec['total_remaining'] / 60, 2)).font = bold_font
             
             for col in ws.columns:
                 max_length = 0

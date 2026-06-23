@@ -71,6 +71,7 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS overtime_vault (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
             date TEXT,
             earned_minutes INTEGER DEFAULT 0,
             used_minutes INTEGER DEFAULT 0,
@@ -78,6 +79,12 @@ def init_db():
             is_extended INTEGER DEFAULT 0
         )
     ''')
+    
+    # Check if user_id exists in overtime_vault (Migration)
+    cursor.execute("PRAGMA table_info(overtime_vault)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if 'user_id' not in columns:
+        cursor.execute("ALTER TABLE overtime_vault ADD COLUMN user_id INTEGER")
     
     # Admin Settings
     cursor.execute('''
@@ -87,10 +94,13 @@ def init_db():
         )
     ''')
     
-    # Insert default admin if not exists (password: 0000 for demo, user can change later)
+    # Insert default admin if not exists
     cursor.execute('SELECT COUNT(*) FROM admin_settings')
     if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO admin_settings (id, password) VALUES (1, '0000')")
+        cursor.execute("INSERT INTO admin_settings (id, password) VALUES (1, 'gsiautomotive1234')")
+    else:
+        # If it was 0000 (old default), we update it to new default
+        cursor.execute("UPDATE admin_settings SET password = 'gsiautomotive1234' WHERE id = 1 AND password = '0000'")
         
     conn.commit()
     conn.close()
