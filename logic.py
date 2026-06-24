@@ -195,12 +195,9 @@ def recalculate_monthly_overtime(user_id, month_str):
                 if work_time > 480:
                     raw_earned = work_time - 480
                     
-            # 10분 단위로 내림(버림) 처리
-            raw_earned = (raw_earned // 10) * 10
+            # 30분 단위로 내림(버림) 처리
+            raw_earned = (raw_earned // 30) * 30
             
-            if weekly_overtime[week_key] + raw_earned > 720:
-                raw_earned = max(0, 720 - weekly_overtime[week_key])
-                
             weekly_overtime[week_key] += raw_earned
                     
             earned = 0
@@ -383,11 +380,18 @@ def export_monthly_excel(user_id, month_str, filepath):
         headers = ['일자', '근무형태', '출근', '퇴근', '비근무시간', '휴게시간', '실근무시간', '발생연장근로', '사용연장근로', '소멸연장근로', '잔여연장근로']
         ws.append(headers)
         
+        last_dt = f"{month_str}-00"
+        actual_expired_total = 0
+        
         for r in rows:
             earned = r['overtime_earned'] or 0
             used = r['overtime_used'] or 0
             dt_str = r['date']
-            expired = expired_by_date.get(dt_str, 0)
+            
+            expired = sum(v for k, v in expired_by_date.items() if last_dt < k <= dt_str)
+            actual_expired_total += expired
+            last_dt = dt_str
+            
             current_carry_over = current_carry_over + earned - used - expired
             
             ws.append([
@@ -410,6 +414,10 @@ def export_monthly_excel(user_id, month_str, filepath):
             red_font = Font(color="EF4444", bold=True)
             center_align = Alignment(horizontal="center", vertical="center")
             
+            text_red = Font(color="FF0000")
+            text_blue = Font(color="0000FF")
+            text_green = Font(color="008000")
+            
             for col_idx in range(1, len(headers) + 1):
                 cell = ws.cell(row=1, column=col_idx)
                 cell.font = bold_font
@@ -421,6 +429,14 @@ def export_monthly_excel(user_id, month_str, filepath):
                     for c_idx in range(1, len(headers) + 1):
                         ws.cell(row=r_idx, column=c_idx).fill = yellow_fill
                         
+                t = r['type']
+                if t in ['holiday', 'public_leave', 'annual_leave', 'sick_leave']:
+                    ws.cell(row=r_idx, column=2).font = text_red
+                elif t in ['replacement_leave']:
+                    ws.cell(row=r_idx, column=2).font = text_blue
+                elif t in ['morning_half', 'afternoon_half', 'public_leave_half']:
+                    ws.cell(row=r_idx, column=2).font = text_green
+                        
             ws.cell(row=2, column=13, value="이월된 연장근로").font = bold_font
             ws.cell(row=2, column=14, value=round(stats['carry_over'] / 60, 2))
             
@@ -431,10 +447,10 @@ def export_monthly_excel(user_id, month_str, filepath):
             ws.cell(row=4, column=14, value=round(stats['curr_used'] / 60, 2))
             
             ws.cell(row=5, column=13, value="소멸된 연장근로").font = bold_font
-            ws.cell(row=5, column=14, value=round(stats.get('expired_overtime', 0) / 60, 2)).font = red_font
+            ws.cell(row=5, column=14, value=round(actual_expired_total / 60, 2)).font = red_font
             
             ws.cell(row=6, column=13, value="잔여 연장근로 시간").font = bold_font
-            ws.cell(row=6, column=14, value=round(stats['total_remaining'] / 60, 2)).font = bold_font
+            ws.cell(row=6, column=14, value=round(current_carry_over / 60, 2)).font = bold_font
             
             for col in ws.columns:
                 max_length = 0
@@ -798,14 +814,25 @@ def export_yearly_excel(year_str, target_user_id, filepath):
         stats_jan = get_monthly_summary(u_id, f"{year_str}-01")
         current_carry_over = stats_jan['carry_over']
         
+        c.execute("SELECT MAX(date) as last_date FROM work_logs WHERE user_id = ? AND date LIKE ?", (u_id, year_str + '%'))
+        last_date_row = c.fetchone()
+        last_date = last_date_row['last_date'] if last_date_row and last_date_row['last_date'] else None
+        
         headers = ['일자', '근무형태', '출근', '퇴근', '비근무시간', '휴게시간', '실근무시간', '발생연장근로', '사용연장근로', '소멸연장근로', '잔여연장근로']
         ws.append(headers)
+        
+        last_dt = f"{year_str}-00-00"
+        actual_expired_total = 0
         
         for r in rows:
             dt_str = r['date']
             earned = r['overtime_earned'] or 0
             used = r['overtime_used'] or 0
-            expired = expired_by_date_all.get(dt_str, 0)
+            
+            expired = sum(v for k, v in expired_by_date_all.items() if last_dt < k <= dt_str)
+            actual_expired_total += expired
+            last_dt = dt_str
+            
             current_carry_over = current_carry_over + earned - used - expired
             
             ws.append([
@@ -819,6 +846,10 @@ def export_yearly_excel(year_str, target_user_id, filepath):
             bold_font = Font(bold=True)
             center_align = Alignment(horizontal="center", vertical="center")
             
+            text_red = Font(color="FF0000")
+            text_blue = Font(color="0000FF")
+            text_green = Font(color="008000")
+            
             for col_idx in range(1, len(headers) + 1):
                 cell = ws.cell(row=1, column=col_idx)
                 cell.font = bold_font
@@ -829,6 +860,14 @@ def export_yearly_excel(year_str, target_user_id, filepath):
                 if (r['overtime_earned'] or 0) > 0:
                     for c_idx in range(1, len(headers) + 1):
                         ws.cell(row=r_idx, column=c_idx).fill = yellow_fill
+                        
+                t = r['type']
+                if t in ['holiday', 'public_leave', 'annual_leave', 'sick_leave']:
+                    ws.cell(row=r_idx, column=2).font = text_red
+                elif t in ['replacement_leave']:
+                    ws.cell(row=r_idx, column=2).font = text_blue
+                elif t in ['morning_half', 'afternoon_half', 'public_leave_half']:
+                    ws.cell(row=r_idx, column=2).font = text_green
                         
             # Yearly summary
             c.execute("SELECT SUM(overtime_earned) as e, SUM(overtime_used) as u FROM work_logs WHERE user_id = ? AND date LIKE ?", (u_id, year_str + '%'))
@@ -847,11 +886,10 @@ def export_yearly_excel(year_str, target_user_id, filepath):
             
             red_font = Font(color="EF4444", bold=True)
             ws.cell(row=5, column=13, value="년도 총 소멸 연장근로").font = bold_font
-            ws.cell(row=5, column=14, value=round(total_expired / 60, 2)).font = red_font
-            
-            stats_dec = get_monthly_summary(u_id, f"{year_str}-12")
+            ws.cell(row=5, column=14, value=round(actual_expired_total / 60, 2)).font = red_font
+                
             ws.cell(row=6, column=13, value="잔여 연장근로 시간").font = bold_font
-            ws.cell(row=6, column=14, value=round(stats_dec['total_remaining'] / 60, 2)).font = bold_font
+            ws.cell(row=6, column=14, value=round(current_carry_over / 60, 2)).font = bold_font
             
             for col in ws.columns:
                 max_length = 0

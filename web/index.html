@@ -115,7 +115,10 @@
                 <div class="entry-form glass">
                     <div class="form-group">
                         <label>날짜</label>
-                        <input type="date" id="entry-date">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: nowrap;">
+                            <input type="date" id="entry-date" style="flex: 1; min-width: 0;">
+                            <span id="entry-date-day" style="font-weight: bold; width: 40px; text-align: center; flex-shrink: 0;"></span>
+                        </div>
                     </div>
                     
                     <div class="form-group">
@@ -151,7 +154,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="form-group" style="margin-top: 1rem;">
+                    <div class="form-group" id="overtime-used-group" style="margin-top: 1rem;">
                         <label>연장근로 사용 (시간)</label>
                         <div class="non-work-control">
                             <input type="number" id="overtime-used" value="0" min="0" step="0.5" style="width: 80px; margin-right: 0.5rem;">

@@ -189,13 +189,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const span = document.getElementById("entry-date-day");
         if (span) {
             span.innerText = days[dayIdx];
-        } else {
-            const newSpan = document.createElement("span");
-            newSpan.id = "entry-date-day";
-            newSpan.style.marginLeft = "8px";
-            newSpan.style.fontWeight = "bold";
-            newSpan.innerText = days[dayIdx];
-            entryDate.parentNode.insertBefore(newSpan, entryDate.nextSibling);
         }
     }
     entryDate.addEventListener("change", updateDateDay);
@@ -236,13 +229,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         
         const otUsedGroup = document.getElementById("overtime-used-group");
-        if (type === "holiday" || type === "annual_leave" || type === "public_leave" || type === "sick_leave" || type === "public_leave_half") {
+        if (type === "normal" || type === "morning_half" || type === "afternoon_half" || type === "replacement_leave") {
+            if(otUsedGroup) otUsedGroup.style.display = "block";
+        } else {
             if(otUsedGroup) {
                 otUsedGroup.style.display = "none";
                 document.getElementById("overtime-used").value = "0";
             }
-        } else {
-            if(otUsedGroup) otUsedGroup.style.display = "block";
         }
     }
 
