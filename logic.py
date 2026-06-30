@@ -4,7 +4,16 @@ import sqlite3
 from datetime import datetime, timedelta
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment
-from database import get_connection
+from database import get_connection, hash_password, verify_password
+
+LEAVE_TYPES = {
+    'holiday',
+    'annual_leave',
+    'public_leave',
+    'sick_leave',
+    'replacement_leave',
+    'public_leave_half',
+}
 
 def get_users():
     conn = get_connection()
@@ -44,11 +53,11 @@ def change_admin_password(old_pw, new_pw):
     c = conn.cursor()
     c.execute('SELECT password FROM admin_settings WHERE id = 1')
     row = c.fetchone()
-    if not row or row[0] != old_pw:
+    if not row or not verify_password(old_pw, row[0]):
         conn.close()
         return False, "기존 비밀번호가 일치하지 않습니다."
         
-    c.execute('UPDATE admin_settings SET password = ? WHERE id = 1', (new_pw,))
+    c.execute('UPDATE admin_settings SET password = ? WHERE id = 1', (hash_password(new_pw),))
     conn.commit()
     conn.close()
     return True, "비밀번호가 성공적으로 변경되었습니다."
@@ -99,7 +108,7 @@ def calculate_work_time(clock_in_str, clock_out_str, non_work_minutes):
             extra_presence -= b
             
         if extra_presence > 0:
-            w = min(480, extra_presence)
+            w = min(450, extra_presence)
             extra_work += w
             extra_presence -= w
             
@@ -189,7 +198,9 @@ def recalculate_monthly_overtime(user_id, month_str):
                 weekly_overtime[week_key] = 0
             
             raw_earned = 0
-            if is_weekend:
+            if log_type in LEAVE_TYPES:
+                raw_earned = 0
+            elif is_weekend:
                 raw_earned = work_time
             else:
                 if work_time > 480:
@@ -309,6 +320,15 @@ def get_monthly_summary(user_id, month_str):
     if expired_overtime < 0:
         expired_overtime = 0
 
+    today = datetime.today()
+    today_str = today.strftime("%Y-%m-%d")
+    soon_end_str = (today + timedelta(days=7)).strftime("%Y-%m-%d")
+    expiring_soon = sum(
+        v['earned'] - v['used']
+        for v in vault
+        if v['earned'] > v['used'] and today_str <= v['expires_at'] <= soon_end_str
+    )
+
     conn.close()
     
     return {
@@ -317,7 +337,7 @@ def get_monthly_summary(user_id, month_str):
         "curr_used": curr_used,
         "expired_overtime": expired_overtime,
         "expired_by_date": expired_by_date,
-        "expiring_soon": 0,
+        "expiring_soon": expiring_soon,
         "total_remaining": total_remaining
     }
 
@@ -327,6 +347,16 @@ def get_weekly_work_time(user_id, start_date_str, end_date_str):
     conn = get_connection()
     c = conn.cursor()
     c.execute('SELECT SUM(work_time) FROM work_logs WHERE user_id = ? AND date >= ? AND date <= ?', (user_id, start_date_str, end_date_str))
+    row = c.fetchone()
+    conn.close()
+    return row[0] or 0
+
+def get_weekly_overtime(user_id, start_date_str, end_date_str):
+    if not user_id:
+        return 0
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('SELECT SUM(overtime_earned) FROM work_logs WHERE user_id = ? AND date >= ? AND date <= ?', (user_id, start_date_str, end_date_str))
     row = c.fetchone()
     conn.close()
     return row[0] or 0
@@ -589,11 +619,21 @@ def sync_vault(user_id):
     conn = get_connection()
     c = conn.cursor()
     
-    # Reset used_minutes
-    c.execute('UPDATE overtime_vault SET used_minutes = 0 WHERE user_id = ?', (user_id,))
-    
     c.execute('SELECT date, overtime_earned, overtime_used FROM work_logs WHERE user_id = ? ORDER BY date', (user_id,))
     logs = c.fetchall()
+
+    earned_dates = [row[0] for row in logs if (row[1] or 0) > 0]
+    if earned_dates:
+        placeholders = ','.join('?' for _ in earned_dates)
+        c.execute(
+            f'DELETE FROM overtime_vault WHERE user_id = ? AND date NOT IN ({placeholders})',
+            [user_id] + earned_dates,
+        )
+    else:
+        c.execute('DELETE FROM overtime_vault WHERE user_id = ?', (user_id,))
+
+    # Reset used_minutes after stale vault rows are removed.
+    c.execute('UPDATE overtime_vault SET used_minutes = 0 WHERE user_id = ?', (user_id,))
     
     for row in logs:
         dt_str = row[0]
@@ -703,7 +743,7 @@ def extend_overtime(user_id, vault_id, admin_pw, new_expires_at):
     c = conn.cursor()
     c.execute('SELECT password FROM admin_settings WHERE id = 1')
     row = c.fetchone()
-    if not row or row[0] != admin_pw:
+    if not row or not verify_password(admin_pw, row[0]):
         conn.close()
         return False, "비밀번호가 일치하지 않습니다."
         

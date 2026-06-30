@@ -92,10 +92,12 @@ class Api:
         end_str = end_dt.strftime("%Y-%m-%d")
         
         total_minutes = logic.get_weekly_work_time(user_id, start_str, end_str)
+        overtime_minutes = logic.get_weekly_overtime(user_id, start_str, end_str)
         return {
             "start": start_str,
             "end": end_str,
-            "total_minutes": total_minutes
+            "total_minutes": total_minutes,
+            "overtime_minutes": overtime_minutes
         }
 
     def get_monthly_summary(self, user_id, month_str):

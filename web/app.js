@@ -357,9 +357,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const mins = totalMins % 60;
             
             document.getElementById("weekly-hours").innerText = `${hours}h ${mins}m`;
-            
-            // Total Overtime for that week
-            // Note: get_weekly_summary should ideally return overtime too, but for now we focus on total mins
+            document.getElementById("weekly-overtime").innerText = formatHm(res.overtime_minutes || 0);
             
             const progress = document.getElementById("weekly-progress");
             const maxMins = 52 * 60;
@@ -427,15 +425,13 @@ document.addEventListener("DOMContentLoaded", () => {
                         displayType = `공휴일 - ${log.description}`;
                     }
                     const tr = document.createElement("tr");
-                    tr.innerHTML = `
-                        <td>${log.date}</td>
-                        <td>${days[dateObj.getDay()]}</td>
-                        <td>${displayType}</td>
-                        <td>${log.clock_in}</td>
-                        <td>${log.clock_out}</td>
-                        <td>${formatHm(log.work_time)}</td>
-                        <td>${log.description || ''}</td>
-                    `;
+                    appendTableCell(tr, log.date);
+                    appendTableCell(tr, days[dateObj.getDay()]);
+                    appendTableCell(tr, displayType);
+                    appendTableCell(tr, log.clock_in);
+                    appendTableCell(tr, log.clock_out);
+                    appendTableCell(tr, formatHm(log.work_time));
+                    appendTableCell(tr, log.description || '');
                     weeklyBody.appendChild(tr);
                 });
                 if (logs.length === 0) {
@@ -539,6 +535,16 @@ document.addEventListener("DOMContentLoaded", () => {
         return `${Math.floor(mins/60)}h ${mins%60}m`;
     }
 
+    function appendTableCell(row, text, style = "") {
+        const cell = document.createElement("td");
+        cell.textContent = text ?? "";
+        if (style) {
+            cell.setAttribute("style", style);
+        }
+        row.appendChild(cell);
+        return cell;
+    }
+
     async function loadScheduleData() {
         if (!window.pywebview) return;
         
@@ -552,7 +558,7 @@ document.addEventListener("DOMContentLoaded", () => {
         
         const userId = userSelect.value;
         if (!userId) {
-            scheduleBody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 2rem;">사용자를 선택해주세요.</td></tr>';
+            scheduleBody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding: 2rem;">사용자를 선택해주세요.</td></tr>';
             return;
         }
         
@@ -605,19 +611,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 const expAmount = (stats.expired_by_date && stats.expired_by_date[log.date]) ? stats.expired_by_date[log.date] : 0;
                 currentRemaining = currentRemaining - expAmount;
                 
-                tr.innerHTML = `
-                    <td>${log.date} ${["(일)", "(월)", "(화)", "(수)", "(목)", "(금)", "(토)"][new Date(log.date).getDay()]}</td>
-                    <td>${displayType}</td>
-                    <td>${log.clock_in}</td>
-                    <td>${log.clock_out}</td>
-                    <td>${formatHm(log.non_work_time)}</td>
-                    <td>${formatHm(log.break_time)}</td>
-                    <td>${formatHm(log.work_time)}</td>
-                    <td style="color:var(--accent-color); font-weight:bold;">${earnedText}</td>
-                    <td style="color:var(--warning); font-weight:bold;">${usedText}</td>
-                    <td style="color:var(--danger-color); font-weight:bold;">${expAmount > 0 ? (expAmount/60).toFixed(2) : ''}</td>
-                    <td style="color:#06b6d4; font-weight:bold;">${(currentRemaining/60).toFixed(2)}</td>
-                `;
+                appendTableCell(tr, `${log.date} ${["(일)", "(월)", "(화)", "(수)", "(목)", "(금)", "(토)"][new Date(log.date).getDay()]}`);
+                appendTableCell(tr, displayType);
+                appendTableCell(tr, log.clock_in);
+                appendTableCell(tr, log.clock_out);
+                appendTableCell(tr, formatHm(log.non_work_time));
+                appendTableCell(tr, formatHm(log.break_time));
+                appendTableCell(tr, formatHm(log.work_time));
+                appendTableCell(tr, earnedText, "color:var(--accent-color); font-weight:bold;");
+                appendTableCell(tr, usedText, "color:var(--warning); font-weight:bold;");
+                appendTableCell(tr, expAmount > 0 ? (expAmount/60).toFixed(2) : '', "color:var(--danger-color); font-weight:bold;");
+                appendTableCell(tr, (currentRemaining/60).toFixed(2), "color:#06b6d4; font-weight:bold;");
                 scheduleBody.appendChild(tr);
             });
             

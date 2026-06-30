@@ -1,7 +1,41 @@
 import sqlite3
 import os
 import sys
+import hashlib
+import hmac
+import secrets
 from datetime import datetime
+
+PASSWORD_HASH_PREFIX = "pbkdf2_sha256"
+PASSWORD_HASH_ITERATIONS = 200_000
+DEFAULT_ADMIN_PASSWORD = "gsiautomotive1234"
+
+def hash_password(password):
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        str(password).encode("utf-8"),
+        salt,
+        PASSWORD_HASH_ITERATIONS,
+    )
+    return f"{PASSWORD_HASH_PREFIX}${PASSWORD_HASH_ITERATIONS}${salt.hex()}${digest.hex()}"
+
+def verify_password(password, stored_password):
+    if stored_password and stored_password.startswith(PASSWORD_HASH_PREFIX + "$"):
+        try:
+            _, iterations, salt_hex, digest_hex = stored_password.split("$", 3)
+            expected = bytes.fromhex(digest_hex)
+            actual = hashlib.pbkdf2_hmac(
+                "sha256",
+                str(password).encode("utf-8"),
+                bytes.fromhex(salt_hex),
+                int(iterations),
+            )
+            return hmac.compare_digest(actual, expected)
+        except (ValueError, TypeError):
+            return False
+
+    return hmac.compare_digest(str(password or ""), str(stored_password or ""))
 
 if getattr(sys, 'frozen', False):
     # If running as PyInstaller executable, put DB next to the .exe
@@ -97,10 +131,13 @@ def init_db():
     # Insert default admin if not exists
     cursor.execute('SELECT COUNT(*) FROM admin_settings')
     if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO admin_settings (id, password) VALUES (1, 'gsiautomotive1234')")
+        cursor.execute("INSERT INTO admin_settings (id, password) VALUES (1, ?)", (hash_password(DEFAULT_ADMIN_PASSWORD),))
     else:
-        # If it was 0000 (old default), we update it to new default
-        cursor.execute("UPDATE admin_settings SET password = 'gsiautomotive1234' WHERE id = 1 AND password = '0000'")
+        # Migrate old plaintext defaults to a salted hash.
+        cursor.execute(
+            "UPDATE admin_settings SET password = ? WHERE id = 1 AND password IN ('0000', ?)",
+            (hash_password(DEFAULT_ADMIN_PASSWORD), DEFAULT_ADMIN_PASSWORD),
+        )
         
     conn.commit()
     conn.close()
